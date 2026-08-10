@@ -3,27 +3,27 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0f1115">
+<meta name="theme-color" content="#e6f4e7">
 <title>食事管理アプリ</title>
 <link rel="manifest" href="manifest.json">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="食事管理">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <style>
   :root{
-    --bg:#0f1115;
-    --panel:#1a1d24;
-    --panel2:#22262f;
-    --border:#2c313c;
-    --text:#e8eaed;
-    --text-dim:#9aa0a6;
+    --bg:#e6f4e7;
+    --panel:#ffffff;
+    --panel2:#edf7ee;
+    --border:#cfe6d0;
+    --text:#1c2e1d;
+    --text-dim:#63805f;
     --accent:#ff9f43;
     --accent-dim:#7a5230;
-    --teal:#4fd1c5;
-    --pink:#ff6b9d;
-    --danger:#ff6b6b;
-    --success:#51cf66;
+    --teal:#1f9d8a;
+    --pink:#d6487a;
+    --danger:#e03131;
+    --success:#2f9e44;
     --radius:14px;
   }
   *{box-sizing:border-box;}
@@ -37,7 +37,7 @@
 
   header.app-header{
     position:sticky;top:0;z-index:20;
-    background:rgba(15,17,21,0.92);backdrop-filter:blur(6px);
+    background:rgba(230,244,231,0.92);backdrop-filter:blur(6px);
     padding:14px 16px 10px;border-bottom:1px solid var(--border);
   }
   header.app-header h1{font-size:18px;font-weight:700;display:flex;align-items:center;gap:8px;}
@@ -70,7 +70,7 @@
     background:var(--panel2);color:var(--text);font-size:15px;outline:none;
   }
   input:focus,select:focus{border-color:var(--accent);}
-  input[type=date]{color-scheme:dark;}
+  input[type=date]{color-scheme:light;}
 
   button.btn{
     padding:12px 16px;border-radius:12px;border:none;font-size:14px;font-weight:700;
@@ -80,7 +80,7 @@
   button.btn:active{transform:scale(.97);}
   button.btn-primary{background:var(--accent);color:#1a1206;}
   button.btn-secondary{background:var(--panel2);color:var(--text);border:1px solid var(--border);}
-  button.btn-danger{background:rgba(255,107,107,.15);color:var(--danger);border:1px solid rgba(255,107,107,.3);}
+  button.btn-danger{background:rgba(224,49,49,.1);color:var(--danger);border:1px solid rgba(224,49,49,.3);}
   button.btn-ghost{background:transparent;color:var(--text-dim);border:1px solid var(--border);}
   button.btn-block{width:100%;}
   button.btn-sm{padding:7px 10px;font-size:12px;border-radius:9px;}
@@ -127,7 +127,7 @@
 
   nav.tabbar{
     position:fixed;left:0;right:0;bottom:0;z-index:30;
-    background:rgba(20,22,28,0.96);backdrop-filter:blur(8px);
+    background:rgba(255,255,255,0.92);backdrop-filter:blur(8px);
     border-top:1px solid var(--border);
     display:flex;padding-bottom:env(safe-area-inset-bottom);
   }
@@ -166,7 +166,7 @@
   @keyframes spin{to{transform:rotate(360deg);}}
 
   .ai-result-badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;
-    background:rgba(79,209,197,.14);color:var(--teal);border:1px solid rgba(79,209,197,.3);
+    background:rgba(31,157,138,.12);color:var(--teal);border:1px solid rgba(31,157,138,.3);
     padding:3px 9px;border-radius:999px;margin-bottom:10px;}
 
   .item-line{display:flex;gap:8px;align-items:center;margin-bottom:6px;}
@@ -198,7 +198,7 @@
   .key-status.ok{color:var(--success);}
   .key-status.ng{color:var(--text-dim);}
 
-  ::placeholder{color:#5c6170;}
+  ::placeholder{color:#8fa88f;}
   hr.sep{border:none;border-top:1px solid var(--border);margin:16px 0;}
 </style>
 </head>
@@ -865,8 +865,8 @@ function renderBpTab(){
 
   const chartData = [...state.bp].sort((a,b)=> (a.date+(a.time||'')).localeCompare(b.date+(b.time||'')));
   drawLineChart(document.getElementById('bp-chart'), [
-    { label:'収縮期', color:'#ff6b9d', points: chartData.map(b=>({x:b.date, y:b.systolic})) },
-    { label:'拡張期', color:'#4fd1c5', points: chartData.map(b=>({x:b.date, y:b.diastolic})) },
+    { label:'収縮期', color:'#d6487a', points: chartData.map(b=>({x:b.date, y:b.systolic})) },
+    { label:'拡張期', color:'#1f9d8a', points: chartData.map(b=>({x:b.date, y:b.diastolic})) },
   ], { unit:'mmHg' });
 }
 
@@ -971,14 +971,14 @@ function drawLineChart(canvas, series, opts={}){
 
   const allPoints = series.flatMap(s=>s.points);
   if(allPoints.length === 0){
-    ctx.fillStyle = '#5c6170';
+    ctx.fillStyle = '#8fa88f';
     ctx.font = '13px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('記録が2件以上になるとグラフが表示されます', cssWidth/2, cssHeight/2);
     return;
   }
   if(allPoints.length === 1){
-    ctx.fillStyle = '#9aa0a6';
+    ctx.fillStyle = '#63805f';
     ctx.font = '13px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('記録が2件以上になるとグラフが表示されます', cssWidth/2, cssHeight/2);
@@ -1000,7 +1000,7 @@ function drawLineChart(canvas, series, opts={}){
   minY -= pad; maxY += pad;
 
   // 軸
-  ctx.strokeStyle = '#2c313c';
+  ctx.strokeStyle = '#cfe6d0';
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(padL, padT);
@@ -1011,7 +1011,7 @@ function drawLineChart(canvas, series, opts={}){
   const yDecimals = (maxY - minY) < 8 ? 1 : 0;
   const fmtY = (v)=> yDecimals ? v.toFixed(1) : Math.round(v);
 
-  ctx.fillStyle = '#9aa0a6';
+  ctx.fillStyle = '#63805f';
   ctx.font = '10px sans-serif';
   ctx.textAlign = 'right';
   ctx.fillText(fmtY(maxY), padL-4, padT+8);
