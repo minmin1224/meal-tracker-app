@@ -108,6 +108,16 @@
   .entry .info .meta{font-size:11px;color:var(--text-dim);margin-top:2px;}
   .entry .cal{font-size:15px;font-weight:700;color:var(--accent);white-space:nowrap;}
   .entry .del{background:none;border:none;color:var(--text-dim);font-size:18px;padding:4px 6px;cursor:pointer;}
+  .entry .expand-chevron{color:var(--text-dim);font-size:10px;padding:4px 2px;}
+
+  .item-breakdown{
+    padding:2px 0 10px 56px;margin-top:-6px;border-bottom:1px solid var(--border);
+  }
+  .item-breakdown .item-row{
+    display:flex;justify-content:space-between;font-size:12px;color:var(--text-dim);
+    padding:4px 10px;background:var(--panel2);border-radius:8px;margin-bottom:4px;
+  }
+  .item-breakdown .item-row span:last-child{color:var(--accent);font-weight:600;}
 
   .meal-section-title{font-size:13px;font-weight:700;color:var(--text-dim);
     display:flex;justify-content:space-between;margin:14px 0 4px;padding:0 2px;}
@@ -271,6 +281,7 @@ let ui = {
   tab: 'meals',
   mealsDate: toLocalDateStr(new Date()),
   mealTypeFilter: 'breakfast',
+  expandedMeals: new Set(),
 };
 
 /* ==================== トースト / モーダル ==================== */
@@ -475,16 +486,26 @@ function renderMealsTab(){
       html += `<div class="empty">まだ記録がありません</div>`;
     }else{
       list.forEach(m=>{
+        const hasItems = Array.isArray(m.items) && m.items.length > 0;
+        const expanded = hasItems && ui.expandedMeals.has(m.id);
         html += `
-          <div class="entry">
+          <div class="entry" data-toggle-meal="${hasItems ? m.id : ''}" style="${hasItems?'cursor:pointer;':''}">
             ${ m.photo ? `<img class="thumb" src="${m.photo}">` : `<div class="noimg">${mt.icon}</div>` }
             <div class="info">
               <div class="name">${escapeHtml(m.name)}</div>
-              <div class="meta">${m.time||''}</div>
+              <div class="meta">${m.time||''}${hasItems ? ` ・ 内訳 ${m.items.length}品目` : ''}</div>
             </div>
             <div class="cal">${m.calories} kcal</div>
+            ${ hasItems ? `<span class="expand-chevron">${expanded ? '▲' : '▼'}</span>` : '' }
             <button class="del" data-del-meal="${m.id}">✕</button>
           </div>
+          ${ expanded ? `
+            <div class="item-breakdown">
+              ${ m.items.map(it=>`
+                <div class="item-row"><span>${escapeHtml(it.name)}</span><span>${it.calories} kcal</span></div>
+              `).join('') }
+            </div>
+          ` : '' }
         `;
       });
     }
@@ -499,12 +520,22 @@ function renderMealsTab(){
   document.getElementById('btn-add-photo').onclick = openAddPhotoModal;
   document.getElementById('btn-add-manual').onclick = ()=>openManualMealModal(null);
   document.querySelectorAll('[data-del-meal]').forEach(btn=>{
-    btn.onclick = ()=>{
+    btn.onclick = (e)=>{
+      e.stopPropagation();
       const id = btn.getAttribute('data-del-meal');
       confirmModal('この記録を削除しますか?', ()=>{
         state.meals = state.meals.filter(m=>m.id!==id);
         saveState(); render();
       });
+    };
+  });
+  document.querySelectorAll('[data-toggle-meal]').forEach(row=>{
+    const id = row.getAttribute('data-toggle-meal');
+    if(!id) return;
+    row.onclick = ()=>{
+      if(ui.expandedMeals.has(id)) ui.expandedMeals.delete(id);
+      else ui.expandedMeals.add(id);
+      render();
     };
   });
 }
