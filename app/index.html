@@ -525,18 +525,23 @@ function openAddPhotoModal(){
   openModal(`
     <h2>📷 写真から追加</h2>
     <div class="col" style="gap:10px;">
-      <input type="file" accept="image/*" capture="environment" id="photo-input" style="display:none;">
-      <button class="btn btn-primary btn-block" id="photo-pick-btn">写真を選択 / 撮影</button>
+      <input type="file" accept="image/*" capture="environment" id="photo-input-camera" style="display:none;">
+      <input type="file" accept="image/*" id="photo-input-library" style="display:none;">
+      <button class="btn btn-primary btn-block" id="photo-camera-btn">📷 その場で撮影</button>
+      <button class="btn btn-secondary btn-block" id="photo-library-btn">🖼️ 写真から選択</button>
       <button class="btn btn-ghost btn-block" id="photo-cancel-btn">キャンセル</button>
     </div>
   `, ()=>{
     document.getElementById('photo-cancel-btn').onclick = closeModal;
-    document.getElementById('photo-pick-btn').onclick = ()=>document.getElementById('photo-input').click();
-    document.getElementById('photo-input').onchange = async (e)=>{
+    document.getElementById('photo-camera-btn').onclick = ()=>document.getElementById('photo-input-camera').click();
+    document.getElementById('photo-library-btn').onclick = ()=>document.getElementById('photo-input-library').click();
+    const onPick = async (e)=>{
       const file = e.target.files[0];
       if(!file) return;
       await handlePhotoSelected(file);
     };
+    document.getElementById('photo-input-camera').onchange = onPick;
+    document.getElementById('photo-input-library').onchange = onPick;
   });
 }
 
