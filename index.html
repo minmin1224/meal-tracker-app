@@ -139,6 +139,7 @@
         <div class="ic">📷</div>
         <h3>写真からカロリー自動判定</h3>
         <p>食事の写真を撮るだけで、AIが料理名とおおよそのカロリーを推定。もちろん手動での修正・入力もできます。</p>
+        <a class="more" href="#ai-setup">使い方を見る →</a>
       </div>
       <div class="feature-card">
         <div class="ic">🍽️</div>
@@ -218,6 +219,18 @@
       <li><div class="txt"><b>食事・体重・血圧を記録</b><span>写真を撮る、または数値を入力するだけ。過去の記録も一覧で確認できます。</span></div></li>
       <li><div class="txt"><b>体重・血圧の推移をグラフで確認</b><span>体重タブ・血圧タブでこれまでの変化をチェックできます。</span></div></li>
       <li><div class="txt"><b>ホーム画面に追加(任意)</b><span>毎日使うなら、ホーム画面に追加しておくとアプリのようにすぐ開けて便利です。</span></div></li>
+    </ol>
+  </div>
+</section>
+
+<section id="ai-setup" class="alt">
+  <div class="wrap">
+    <h2 class="section-title">写真のAI判定を使うには</h2>
+    <p class="section-sub">任意機能です。設定しなくても手動入力でアプリは使えます</p>
+    <ol class="steps">
+      <li><div class="txt"><b>Anthropic APIキーを取得する</b><span><a class="link-btn" href="https://console.anthropic.com" target="_blank" rel="noopener">console.anthropic.com</a> でアカウントを作成し、「API Keys」からキー(<code>sk-ant-...</code>)を発行します。従量課金制で、写真1枚あたりのコストはごくわずかです。</span></div></li>
+      <li><div class="txt"><b>アプリの設定タブに登録する</b><span>アプリを起動し、「⚙️ 設定」タブの「Anthropicキー」欄に取得したキーを貼り付けて保存します。キーはこの端末のブラウザ内にのみ保存されます。</span></div></li>
+      <li><div class="txt"><b>写真から追加を使う</b><span>「🍽️ 食事」タブ→「📷 写真から追加」で撮影・または写真ライブラリから選択すると、AIが料理名とカロリーを自動入力します。内容は保存前に自由に修正できます。</span></div></li>
     </ol>
   </div>
 </section>
