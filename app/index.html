@@ -230,6 +230,18 @@ const STORAGE_KEY = 'meal-tracker-state-v1';
 function toLocalDateStr(d){
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
+function toMonthStr(d){
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+}
+function fmtMonthJp(monthStr){
+  const [y,m] = monthStr.split('-');
+  return `${y}年${parseInt(m,10)}月`;
+}
+function averageOf(entries, field){
+  if(entries.length === 0) return null;
+  const sum = entries.reduce((s,e)=>s+e[field],0);
+  return Math.round((sum/entries.length)*10)/10;
+}
 function nowTimeStr(){
   const d = new Date();
   return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
@@ -282,6 +294,7 @@ let ui = {
   mealsDate: toLocalDateStr(new Date()),
   mealTypeFilter: 'breakfast',
   expandedMeals: new Set(),
+  bpMonth: toMonthStr(new Date()),
 };
 
 /* ==================== トースト / モーダル ==================== */
@@ -545,6 +558,12 @@ function shiftMealsDate(delta){
   ui.mealsDate = toLocalDateStr(dt);
   render();
 }
+function shiftBpMonth(delta){
+  const [y,m] = ui.bpMonth.split('-').map(Number);
+  const dt = new Date(y, m-1+delta, 1);
+  ui.bpMonth = toMonthStr(dt);
+  render();
+}
 function escapeHtml(str){
   const div = document.createElement('div');
   div.textContent = str ?? '';
@@ -784,6 +803,17 @@ function renderBpTab(){
   const morningLatest = sorted.find(b=>b.period==='morning');
   const eveningLatest = sorted.find(b=>b.period==='evening');
 
+  const month = ui.bpMonth;
+  const monthMorning = state.bp.filter(b=>b.period==='morning' && b.date.startsWith(month))
+    .sort((a,b)=> (a.date+(a.time||'')).localeCompare(b.date+(b.time||'')));
+  const monthEvening = state.bp.filter(b=>b.period==='evening' && b.date.startsWith(month))
+    .sort((a,b)=> (a.date+(a.time||'')).localeCompare(b.date+(b.time||'')));
+
+  const morningAvgSys = averageOf(monthMorning, 'systolic');
+  const morningAvgDia = averageOf(monthMorning, 'diastolic');
+  const eveningAvgSys = averageOf(monthEvening, 'systolic');
+  const eveningAvgDia = averageOf(monthEvening, 'diastolic');
+
   let html = '';
   html += `<div class="stat-grid">
     <div class="stat-box">
@@ -796,8 +826,32 @@ function renderBpTab(){
     </div>
   </div>`;
 
-  html += `<div class="card"><h3>🌅 朝の月別平均(収縮期・拡張期)</h3><canvas class="chart" id="bp-chart-morning"></canvas></div>`;
-  html += `<div class="card"><h3>🌙 夕の月別平均(収縮期・拡張期)</h3><canvas class="chart" id="bp-chart-evening"></canvas></div>`;
+  html += `
+    <div class="row" style="margin-bottom:10px;">
+      <button class="btn btn-secondary btn-sm" id="bp-month-prev">◀</button>
+      <div class="grow" style="text-align:center;font-weight:700;font-size:14px;">${fmtMonthJp(month)}</div>
+      <button class="btn btn-secondary btn-sm" id="bp-month-next">▶</button>
+    </div>
+  `;
+
+  html += `<div class="card">
+    <h3>🌅 朝の推移</h3>
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px;">
+      ${ monthMorning.length>0
+        ? `この月の平均 <span style="color:var(--accent);font-weight:700;">${morningAvgSys}/${morningAvgDia}</span> mmHg(${monthMorning.length}件)`
+        : 'この月の記録はまだありません' }
+    </div>
+    <canvas class="chart" id="bp-chart-morning"></canvas>
+  </div>`;
+  html += `<div class="card">
+    <h3>🌙 夕の推移</h3>
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px;">
+      ${ monthEvening.length>0
+        ? `この月の平均 <span style="color:var(--accent);font-weight:700;">${eveningAvgSys}/${eveningAvgDia}</span> mmHg(${monthEvening.length}件)`
+        : 'この月の記録はまだありません' }
+    </div>
+    <canvas class="chart" id="bp-chart-evening"></canvas>
+  </div>`;
 
   html += `<div class="card">
     <h3>血圧を記録</h3>
@@ -819,6 +873,9 @@ function renderBpTab(){
   html += `<div class="card"><h3>履歴</h3><div id="bp-history"></div></div>`;
 
   document.getElementById('main').innerHTML = html;
+
+  document.getElementById('bp-month-prev').onclick = ()=>shiftBpMonth(-1);
+  document.getElementById('bp-month-next').onclick = ()=>shiftBpMonth(1);
 
   let selectedPeriod = 'morning';
   document.querySelectorAll('[data-bp-period]').forEach(chip=>{
@@ -864,19 +921,17 @@ function renderBpTab(){
     toast('血圧を記録しました');
   };
 
-  const morningEntries = state.bp.filter(b=>b.period==='morning');
-  const eveningEntries = state.bp.filter(b=>b.period==='evening');
-  const monthlyEmptyMsg = '2ヶ月分以上の記録でグラフが表示されます';
+  const dayEmptyMsg = 'この月の記録が2件以上になるとグラフが表示されます';
 
   drawLineChart(document.getElementById('bp-chart-morning'), [
-    { label:'収縮期(平均)', color:'#d6487a', points: monthlyAverage(morningEntries, 'systolic') },
-    { label:'拡張期(平均)', color:'#1f9d8a', points: monthlyAverage(morningEntries, 'diastolic') },
-  ], { unit:'mmHg', granularity:'month', emptyMessage: monthlyEmptyMsg });
+    { label:'収縮期', color:'#d6487a', points: monthMorning.map(b=>({x:b.date, y:b.systolic})) },
+    { label:'拡張期', color:'#1f9d8a', points: monthMorning.map(b=>({x:b.date, y:b.diastolic})) },
+  ], { unit:'mmHg', emptyMessage: dayEmptyMsg });
 
   drawLineChart(document.getElementById('bp-chart-evening'), [
-    { label:'収縮期(平均)', color:'#d6487a', points: monthlyAverage(eveningEntries, 'systolic') },
-    { label:'拡張期(平均)', color:'#1f9d8a', points: monthlyAverage(eveningEntries, 'diastolic') },
-  ], { unit:'mmHg', granularity:'month', emptyMessage: monthlyEmptyMsg });
+    { label:'収縮期', color:'#d6487a', points: monthEvening.map(b=>({x:b.date, y:b.systolic})) },
+    { label:'拡張期', color:'#1f9d8a', points: monthEvening.map(b=>({x:b.date, y:b.diastolic})) },
+  ], { unit:'mmHg', emptyMessage: dayEmptyMsg });
 }
 
 /* ==================== レンダリング: 設定タブ ==================== */
@@ -965,21 +1020,6 @@ function renderSettingsTab(){
   };
 }
 
-/* ==================== 月別平均の集計 ==================== */
-function monthlyAverage(entries, field){
-  const groups = {};
-  entries.forEach(e=>{
-    const key = e.date.slice(0,7); // "YYYY-MM"
-    if(!groups[key]) groups[key] = [];
-    groups[key].push(e[field]);
-  });
-  return Object.keys(groups).sort().map(key=>{
-    const vals = groups[key];
-    const avg = vals.reduce((a,b)=>a+b,0) / vals.length;
-    return { x: key, y: Math.round(avg*10)/10 };
-  });
-}
-
 /* ==================== 折れ線グラフ描画(Canvas) ==================== */
 function drawLineChart(canvas, series, opts={}){
   if(!canvas) return;
@@ -1047,17 +1087,9 @@ function drawLineChart(canvas, series, opts={}){
   ctx.fillText(fmtY(maxY), padL-4, padT+8);
   ctx.fillText(fmtY(minY), padL-4, padT+plotH);
 
-  const fmtX = (key)=>{
-    if(opts.granularity === 'month'){
-      const [y,m] = key.split('-');
-      return `${y.slice(2)}/${parseInt(m,10)}`;
-    }
-    return key.slice(5).replace('-','/');
-  };
-
   ctx.textAlign = 'left';
-  const firstLabel = fmtX(uniqueDates[0]);
-  const lastLabel = fmtX(uniqueDates[uniqueDates.length-1]);
+  const firstLabel = uniqueDates[0].slice(5).replace('-','/');
+  const lastLabel = uniqueDates[uniqueDates.length-1].slice(5).replace('-','/');
   ctx.fillText(firstLabel, padL, cssHeight-6);
   ctx.textAlign = 'right';
   ctx.fillText(lastLabel, padL+plotW, cssHeight-6);

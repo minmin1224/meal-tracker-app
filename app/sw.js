@@ -1,4 +1,4 @@
-const CACHE_NAME = "meal-tracker-cache-v5";
+const CACHE_NAME = "meal-tracker-cache-v6";
 const ASSETS = ["./", "./index.html", "./manifest.json", "./icons/icon-192.png", "./icons/icon-512.png"];
 
 self.addEventListener("install", (event) => {
