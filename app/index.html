@@ -796,7 +796,8 @@ function renderBpTab(){
     </div>
   </div>`;
 
-  html += `<div class="card"><h3>推移グラフ(上:収縮期 / 下:拡張期)</h3><canvas class="chart" id="bp-chart"></canvas></div>`;
+  html += `<div class="card"><h3>🌅 朝の月別平均(収縮期・拡張期)</h3><canvas class="chart" id="bp-chart-morning"></canvas></div>`;
+  html += `<div class="card"><h3>🌙 夕の月別平均(収縮期・拡張期)</h3><canvas class="chart" id="bp-chart-evening"></canvas></div>`;
 
   html += `<div class="card">
     <h3>血圧を記録</h3>
@@ -863,11 +864,19 @@ function renderBpTab(){
     toast('血圧を記録しました');
   };
 
-  const chartData = [...state.bp].sort((a,b)=> (a.date+(a.time||'')).localeCompare(b.date+(b.time||'')));
-  drawLineChart(document.getElementById('bp-chart'), [
-    { label:'収縮期', color:'#d6487a', points: chartData.map(b=>({x:b.date, y:b.systolic})) },
-    { label:'拡張期', color:'#1f9d8a', points: chartData.map(b=>({x:b.date, y:b.diastolic})) },
-  ], { unit:'mmHg' });
+  const morningEntries = state.bp.filter(b=>b.period==='morning');
+  const eveningEntries = state.bp.filter(b=>b.period==='evening');
+  const monthlyEmptyMsg = '2ヶ月分以上の記録でグラフが表示されます';
+
+  drawLineChart(document.getElementById('bp-chart-morning'), [
+    { label:'収縮期(平均)', color:'#d6487a', points: monthlyAverage(morningEntries, 'systolic') },
+    { label:'拡張期(平均)', color:'#1f9d8a', points: monthlyAverage(morningEntries, 'diastolic') },
+  ], { unit:'mmHg', granularity:'month', emptyMessage: monthlyEmptyMsg });
+
+  drawLineChart(document.getElementById('bp-chart-evening'), [
+    { label:'収縮期(平均)', color:'#d6487a', points: monthlyAverage(eveningEntries, 'systolic') },
+    { label:'拡張期(平均)', color:'#1f9d8a', points: monthlyAverage(eveningEntries, 'diastolic') },
+  ], { unit:'mmHg', granularity:'month', emptyMessage: monthlyEmptyMsg });
 }
 
 /* ==================== レンダリング: 設定タブ ==================== */
@@ -956,6 +965,21 @@ function renderSettingsTab(){
   };
 }
 
+/* ==================== 月別平均の集計 ==================== */
+function monthlyAverage(entries, field){
+  const groups = {};
+  entries.forEach(e=>{
+    const key = e.date.slice(0,7); // "YYYY-MM"
+    if(!groups[key]) groups[key] = [];
+    groups[key].push(e[field]);
+  });
+  return Object.keys(groups).sort().map(key=>{
+    const vals = groups[key];
+    const avg = vals.reduce((a,b)=>a+b,0) / vals.length;
+    return { x: key, y: Math.round(avg*10)/10 };
+  });
+}
+
 /* ==================== 折れ線グラフ描画(Canvas) ==================== */
 function drawLineChart(canvas, series, opts={}){
   if(!canvas) return;
@@ -969,19 +993,25 @@ function drawLineChart(canvas, series, opts={}){
   ctx.scale(dpr, dpr);
   ctx.clearRect(0,0,cssWidth,cssHeight);
 
+  const emptyMsg = opts.emptyMessage || '記録が2件以上になるとグラフが表示されます';
+  const drawEmptyMessage = (color)=>{
+    ctx.fillStyle = color;
+    ctx.textAlign = 'center';
+    let fontSize = 13;
+    ctx.font = fontSize + 'px sans-serif';
+    while(ctx.measureText(emptyMsg).width > cssWidth - 20 && fontSize > 10){
+      fontSize -= 1;
+      ctx.font = fontSize + 'px sans-serif';
+    }
+    ctx.fillText(emptyMsg, cssWidth/2, cssHeight/2);
+  };
   const allPoints = series.flatMap(s=>s.points);
   if(allPoints.length === 0){
-    ctx.fillStyle = '#8fa88f';
-    ctx.font = '13px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('記録が2件以上になるとグラフが表示されます', cssWidth/2, cssHeight/2);
+    drawEmptyMessage('#8fa88f');
     return;
   }
   if(allPoints.length === 1){
-    ctx.fillStyle = '#63805f';
-    ctx.font = '13px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('記録が2件以上になるとグラフが表示されます', cssWidth/2, cssHeight/2);
+    drawEmptyMessage('#63805f');
     return;
   }
 
@@ -1017,9 +1047,17 @@ function drawLineChart(canvas, series, opts={}){
   ctx.fillText(fmtY(maxY), padL-4, padT+8);
   ctx.fillText(fmtY(minY), padL-4, padT+plotH);
 
+  const fmtX = (key)=>{
+    if(opts.granularity === 'month'){
+      const [y,m] = key.split('-');
+      return `${y.slice(2)}/${parseInt(m,10)}`;
+    }
+    return key.slice(5).replace('-','/');
+  };
+
   ctx.textAlign = 'left';
-  const firstLabel = uniqueDates[0].slice(5).replace('-','/');
-  const lastLabel = uniqueDates[uniqueDates.length-1].slice(5).replace('-','/');
+  const firstLabel = fmtX(uniqueDates[0]);
+  const lastLabel = fmtX(uniqueDates[uniqueDates.length-1]);
   ctx.fillText(firstLabel, padL, cssHeight-6);
   ctx.textAlign = 'right';
   ctx.fillText(lastLabel, padL+plotW, cssHeight-6);
