@@ -438,6 +438,67 @@ async function analyzeFoodPhoto(base64, mediaType){
   return parsed;
 }
 
+/* ==================== 食事名からのカロリー推定(テキストのみ) ==================== */
+async function estimateCaloriesFromName(name){
+  const apiKey = state.settings.apiKey;
+  if(!apiKey){
+    throw new Error('NO_API_KEY');
+  }
+  const schema = {
+    type:'object',
+    properties:{
+      estimated_calories:{ type:'integer', description:'その料理1人前のおおよそのカロリー(kcal)' },
+    },
+    required:['estimated_calories'],
+    additionalProperties:false
+  };
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method:'POST',
+    headers:{
+      'Content-Type':'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version':'2023-06-01',
+      'anthropic-dangerous-direct-browser-access':'true',
+    },
+    body: JSON.stringify({
+      model:'claude-opus-5',
+      max_tokens:256,
+      thinking:{ type:'disabled' },
+      output_config:{
+        effort:'low',
+        format:{ type:'json_schema', schema }
+      },
+      messages:[{
+        role:'user',
+        content:[
+          { type:'text', text:`次の料理1人前のおおよそのカロリー(kcal)を推定してください。日本の一般的な家庭料理・外食メニューを想定してください。料理名:「${name}」` }
+        ]
+      }]
+    })
+  });
+
+  if(!res.ok){
+    if(res.status === 401) throw new Error('APIキーが正しくありません。設定画面を確認してください。');
+    if(res.status === 429) throw new Error('リクエストが多すぎます。しばらく待って再試行してください。');
+    throw new Error('カロリーの推定に失敗しました');
+  }
+
+  const data = await res.json();
+  if(data.stop_reason === 'refusal'){
+    throw new Error('この料理名からは推定できませんでした。手動で入力してください。');
+  }
+
+  const textBlock = (data.content||[]).find(b=>b.type==='text');
+  if(!textBlock) throw new Error('AIからの応答を読み取れませんでした。');
+
+  let parsed;
+  try{ parsed = JSON.parse(textBlock.text); }
+  catch(e){ throw new Error('AIの応答を解析できませんでした。'); }
+
+  return parsed;
+}
+
 /* ==================== 集計ヘルパー ==================== */
 function mealsForDate(date){
   return state.meals.filter(m=>m.date===date);
@@ -572,8 +633,12 @@ function escapeHtml(str){
 
 /* ---- 写真から追加モーダル ---- */
 function openAddPhotoModal(){
+  let selectedType = ui.mealTypeFilter || 'breakfast';
+  const chipsHtml = MEAL_TYPES.map(mt=>`<div class="chip ${mt.id===selectedType?'active':''}" data-mealtype="${mt.id}">${mt.icon} ${mt.label}</div>`).join('');
   openModal(`
     <h2>📷 写真から追加</h2>
+    <label class="field-label">食事の種類</label>
+    <div class="chip-group" id="phototype-chips" style="margin-bottom:14px;">${chipsHtml}</div>
     <div class="col" style="gap:10px;">
       <input type="file" accept="image/*" capture="environment" id="photo-input-camera" style="display:none;">
       <input type="file" accept="image/*" id="photo-input-library" style="display:none;">
@@ -582,20 +647,27 @@ function openAddPhotoModal(){
       <button class="btn btn-ghost btn-block" id="photo-cancel-btn">キャンセル</button>
     </div>
   `, ()=>{
+    document.querySelectorAll('#phototype-chips .chip').forEach(chip=>{
+      chip.onclick = ()=>{
+        selectedType = chip.getAttribute('data-mealtype');
+        document.querySelectorAll('#phototype-chips .chip').forEach(c=>c.classList.toggle('active', c===chip));
+      };
+    });
     document.getElementById('photo-cancel-btn').onclick = closeModal;
     document.getElementById('photo-camera-btn').onclick = ()=>document.getElementById('photo-input-camera').click();
     document.getElementById('photo-library-btn').onclick = ()=>document.getElementById('photo-input-library').click();
     const onPick = async (e)=>{
       const file = e.target.files[0];
       if(!file) return;
-      await handlePhotoSelected(file);
+      ui.mealTypeFilter = selectedType;
+      await handlePhotoSelected(file, selectedType);
     };
     document.getElementById('photo-input-camera').onchange = onPick;
     document.getElementById('photo-input-library').onchange = onPick;
   });
 }
 
-async function handlePhotoSelected(file){
+async function handlePhotoSelected(file, mealType){
   let compressed;
   try{
     compressed = await compressImage(file);
@@ -612,7 +684,7 @@ async function handlePhotoSelected(file){
 
   if(!state.settings.apiKey){
     closeModal();
-    openManualMealModal(null, compressed);
+    openManualMealModal(null, compressed, null, mealType);
     toast('APIキー未設定のため手動入力になります(設定画面から登録できます)');
     return;
   }
@@ -620,7 +692,7 @@ async function handlePhotoSelected(file){
   try{
     const result = await analyzeFoodPhoto(compressed.base64, compressed.mediaType);
     closeModal();
-    openManualMealModal(null, compressed, result);
+    openManualMealModal(null, compressed, result, mealType);
   }catch(err){
     closeModal();
     if(err.message === 'NO_API_KEY'){
@@ -628,14 +700,14 @@ async function handlePhotoSelected(file){
     }else{
       toast(err.message || 'AI判定に失敗しました');
     }
-    openManualMealModal(null, compressed);
+    openManualMealModal(null, compressed, null, mealType);
   }
 }
 
 /* ---- 手動 / AI結果 入力モーダル(食事) ---- */
-function openManualMealModal(existing, photoData, aiResult){
+function openManualMealModal(existing, photoData, aiResult, presetType){
   const editing = !!existing;
-  const type = existing?.type || ui.mealTypeFilter || 'breakfast';
+  const type = existing?.type || presetType || ui.mealTypeFilter || 'breakfast';
   const name = existing?.name || aiResult?.food_name || '';
   const calories = existing?.calories ?? aiResult?.estimated_calories ?? '';
   const items = existing?.items || aiResult?.items || [];
@@ -680,6 +752,32 @@ function openManualMealModal(existing, photoData, aiResult){
       };
     });
     document.getElementById('meal-cancel').onclick = closeModal;
+
+    const calInput = document.getElementById('meal-calories');
+    const nameInput = document.getElementById('meal-name');
+    let lastEstimatedName = name.trim();
+    nameInput.addEventListener('blur', async ()=>{
+      const val = nameInput.value.trim();
+      if(!val || val === lastEstimatedName) return;
+      if(!state.settings.apiKey){
+        toast('APIキー未設定のためカロリーの自動推定はできません(手動で入力してください)');
+        return;
+      }
+      const originalPlaceholder = calInput.placeholder;
+      calInput.placeholder = '推定中…';
+      try{
+        const result = await estimateCaloriesFromName(val);
+        if(nameInput.value.trim() === val){
+          calInput.value = result.estimated_calories;
+          lastEstimatedName = val;
+        }
+      }catch(err){
+        toast(err.message || 'カロリーの推定に失敗しました');
+      }finally{
+        calInput.placeholder = originalPlaceholder;
+      }
+    });
+
     document.getElementById('add-item-row').onclick = ()=>{
       const list = document.getElementById('items-list');
       const row = document.createElement('div');
