@@ -257,7 +257,7 @@ const MEAL_TYPES = [
 
 function defaultState(){
   return {
-    meals: [],       // {id,date,type,name,calories,photo,time,items:[{name,calories}]}
+    meals: [],       // {id,date,type,name,calories,hasPhoto,time,items:[{name,calories}]} 写真本体はIndexedDB
     weights: [],      // {id,date,weight,time}
     bp: [],           // {id,date,period,systolic,diastolic,pulse,time}
     settings: { apiKey:'', calorieTarget:null },
@@ -282,10 +282,81 @@ function loadState(){
 function saveState(){
   try{
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    return true;
   }catch(e){
     console.error('state save failed', e);
     toast('保存に失敗しました(容量不足の可能性があります)');
+    return false;
   }
+}
+
+/* ==================== 写真ストア(IndexedDB) ==================== */
+// 写真をlocalStorageに入れると上限(1ドメイン約5MB、同じgithub.io配下の他アプリと共有)で
+// すぐ満杯になるため、端末の空き容量に応じて大きく使えるIndexedDBに食事IDをキーに保存する
+const PHOTO_DB_NAME = 'meal-tracker-photos';
+const PHOTO_STORE = 'photos';
+const photoCache = new Map();
+let photoDbPromise = null;
+
+function openPhotoDb(){
+  if(!photoDbPromise){
+    photoDbPromise = new Promise((resolve, reject)=>{
+      const req = indexedDB.open(PHOTO_DB_NAME, 1);
+      req.onupgradeneeded = ()=>req.result.createObjectStore(PHOTO_STORE);
+      req.onsuccess = ()=>resolve(req.result);
+      req.onerror = ()=>reject(req.error);
+    });
+    photoDbPromise.catch(()=>{ photoDbPromise = null; });
+  }
+  return photoDbPromise;
+}
+async function photoTx(mode, fn){
+  const db = await openPhotoDb();
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction(PHOTO_STORE, mode);
+    const req = fn(tx.objectStore(PHOTO_STORE));
+    tx.oncomplete = ()=>resolve(req.result);
+    tx.onerror = ()=>reject(tx.error);
+    tx.onabort = ()=>reject(tx.error);
+  });
+}
+async function putPhoto(id, dataUrl){
+  await photoTx('readwrite', s=>s.put(dataUrl, id));
+  photoCache.set(id, dataUrl);
+}
+async function getPhoto(id){
+  if(photoCache.has(id)) return photoCache.get(id);
+  const dataUrl = await photoTx('readonly', s=>s.get(id));
+  if(dataUrl) photoCache.set(id, dataUrl);
+  return dataUrl || null;
+}
+async function deletePhoto(id){
+  photoCache.delete(id);
+  await photoTx('readwrite', s=>s.delete(id));
+}
+async function clearPhotos(){
+  photoCache.clear();
+  await photoTx('readwrite', s=>s.clear());
+}
+// 旧バージョンでlocalStorageに直接入れていた写真をIndexedDBへ移し、localStorageを空ける
+async function migratePhotosToIdb(){
+  const legacy = state.meals.filter(m=>typeof m.photo === 'string' && m.photo);
+  if(legacy.length === 0) return;
+  for(const m of legacy){
+    await putPhoto(m.id, m.photo);
+    m.hasPhoto = true;
+    delete m.photo;
+  }
+  saveState();
+}
+// 描画後に data-photo-id を持つ<img>へ写真を非同期で差し込む
+function hydratePhotos(){
+  document.querySelectorAll('img[data-photo-id]').forEach(async img=>{
+    const id = img.getAttribute('data-photo-id');
+    const legacy = state.meals.find(m=>m.id===id)?.photo;
+    const src = legacy || await getPhoto(id).catch(()=>null);
+    if(src && img.isConnected) img.src = src;
+  });
 }
 
 /* ==================== 画面状態(永続化しない) ==================== */
@@ -564,7 +635,7 @@ function renderMealsTab(){
         const expanded = hasItems && ui.expandedMeals.has(m.id);
         html += `
           <div class="entry" data-toggle-meal="${hasItems ? m.id : ''}" style="${hasItems?'cursor:pointer;':''}">
-            ${ m.photo ? `<img class="thumb" src="${m.photo}">` : `<div class="noimg">${mt.icon}</div>` }
+            ${ (m.hasPhoto || m.photo) ? `<img class="thumb" data-photo-id="${m.id}">` : `<div class="noimg">${mt.icon}</div>` }
             <div class="info">
               <div class="name">${escapeHtml(m.name)}</div>
               <div class="meta">${m.time||''}${hasItems ? ` ・ 内訳 ${m.items.length}品目` : ''}</div>
@@ -587,6 +658,7 @@ function renderMealsTab(){
   });
 
   document.getElementById('main').innerHTML = html;
+  hydratePhotos();
 
   document.getElementById('meals-date-input').onchange = (e)=>{ ui.mealsDate = e.target.value; render(); };
   document.getElementById('date-prev').onclick = ()=>{ shiftMealsDate(-1); };
@@ -600,6 +672,7 @@ function renderMealsTab(){
       confirmModal('この記録を削除しますか?', ()=>{
         state.meals = state.meals.filter(m=>m.id!==id);
         saveState(); render();
+        deletePhoto(id).catch(err=>console.error('photo delete failed', err));
       });
     };
   });
@@ -789,7 +862,8 @@ function openManualMealModal(existing, photoData, aiResult, presetType){
     document.querySelectorAll('[data-remove-item]').forEach(btn=>{
       btn.onclick = ()=>btn.closest('.item-line').remove();
     });
-    document.getElementById('meal-save').onclick = ()=>{
+    document.getElementById('meal-save').onclick = async (e)=>{
+      const saveBtn = e.currentTarget;
       const nameVal = document.getElementById('meal-name').value.trim();
       const calVal = parseInt(document.getElementById('meal-calories').value, 10);
       if(!nameVal){ toast('料理名を入力してください'); return; }
@@ -807,13 +881,32 @@ function openManualMealModal(existing, photoData, aiResult, presetType){
             type: currentType, name: nameVal, calories: calVal, items: itemRows
           });
         }
+        if(!saveState()) return;
       }else{
+        const id = uid();
+        if(photo){
+          saveBtn.disabled = true;
+          try{
+            await putPhoto(id, photo);
+          }catch(err){
+            console.error('photo save failed', err);
+            toast('写真の保存に失敗しました(端末の空き容量を確認してください)');
+            saveBtn.disabled = false;
+            return;
+          }
+        }
         state.meals.push({
-          id: uid(), date: ui.mealsDate, type: currentType, name: nameVal,
-          calories: calVal, items: itemRows, photo: photo || null, time: nowTimeStr()
+          id, date: ui.mealsDate, type: currentType, name: nameVal,
+          calories: calVal, items: itemRows, hasPhoto: !!photo, time: nowTimeStr()
         });
+        if(!saveState()){
+          // 保存できなかった記録は画面にも残さない(リロードで消える「保存したつもり」を防ぐ)
+          state.meals.pop();
+          if(photo) deletePhoto(id).catch(()=>{});
+          saveBtn.disabled = false;
+          return;
+        }
       }
-      saveState();
       closeModal();
       render();
       toast('保存しました');
@@ -1079,8 +1172,15 @@ function renderSettingsTab(){
     saveState(); render();
     toast('目標カロリーを保存しました');
   };
-  document.getElementById('export-btn').onclick = ()=>{
-    const blob = new Blob([JSON.stringify(state, null, 2)], {type:'application/json'});
+  document.getElementById('export-btn').onclick = async ()=>{
+    // バックアップファイルには従来どおり写真を各記録のphotoに埋め込む(旧形式と互換)
+    const meals = await Promise.all(state.meals.map(async m=>{
+      if(!m.hasPhoto) return m;
+      const { hasPhoto, ...rest } = m;
+      const photo = await getPhoto(m.id).catch(()=>null);
+      return photo ? Object.assign(rest, { photo }) : rest;
+    }));
+    const blob = new Blob([JSON.stringify(Object.assign({}, state, { meals }), null, 2)], {type:'application/json'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -1096,12 +1196,24 @@ function renderSettingsTab(){
     reader.onload = ()=>{
       try{
         const parsed = JSON.parse(reader.result);
-        confirmModal('現在のデータを、選択したファイルの内容で上書きします。よろしいですか?', ()=>{
-          state = Object.assign(defaultState(), parsed, {
+        confirmModal('現在のデータを、選択したファイルの内容で上書きします。よろしいですか?', async ()=>{
+          const imported = Object.assign(defaultState(), parsed, {
             settings: Object.assign(defaultState().settings, parsed.settings||{})
           });
-          saveState(); render();
-          toast('データを復元しました');
+          let photoFailed = 0;
+          try{ await clearPhotos(); }catch(err){ console.error('photo clear failed', err); }
+          for(const m of imported.meals){
+            if(typeof m.photo === 'string' && m.photo){
+              try{ await putPhoto(m.id, m.photo); m.hasPhoto = true; }
+              catch(err){ console.error('photo import failed', err); m.hasPhoto = false; photoFailed++; }
+              delete m.photo;
+            }else{
+              m.hasPhoto = false;
+            }
+          }
+          state = imported;
+          const ok = saveState(); render();
+          if(ok) toast(photoFailed ? `データを復元しました(写真${photoFailed}件は復元できませんでした)` : 'データを復元しました');
         }, '上書きする');
       }catch(err){
         toast('ファイルの読み込みに失敗しました');
@@ -1113,6 +1225,7 @@ function renderSettingsTab(){
     confirmModal('すべての記録(食事・体重・血圧・設定)を削除します。この操作は取り消せません。', ()=>{
       state = defaultState();
       saveState(); render();
+      clearPhotos().catch(err=>console.error('photo clear failed', err));
       toast('すべてのデータを削除しました');
     }, '完全に削除する');
   };
@@ -1238,6 +1351,9 @@ document.querySelectorAll('nav.tabbar button').forEach(btn=>{
 });
 
 render();
+migratePhotosToIdb()
+  .catch(err=>console.error('photo migration failed', err))
+  .finally(()=>{ if(ui.tab === 'meals') render(); });
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
